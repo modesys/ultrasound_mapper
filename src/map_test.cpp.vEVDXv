@@ -1,0 +1,214 @@
+#include <ros/ros.h>
+#include <grid_map_ros/grid_map_ros.hpp>
+//#include <Eigen/Eigen>
+#include <grid_map_msgs/GridMap.h>
+#include <string>
+#include <cstring>
+#include <cmath>
+#include <iostream>
+#include <sensor_msgs/PointCloud.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/common/common.h>
+#include <pcl/filters/crop_box.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/PoseStamped.h>
+
+using namespace grid_map;
+
+void loadFromFile(std::string filename, pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud)
+{
+    cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
+    if(pcl::io::loadPCDFile<pcl::PointXYZ> (filename, *cloud) == -1) // load point cloud file
+    {
+        PCL_ERROR("Could not read the file");
+        return;
+    }
+}
+
+/*!
+ * \brief findElevation : finds the averaged elevation within the cell size specified by XY
+ * \param posX[in] = ppsition of the X
+ * \param posY[in] = position of the Y
+ * \param cellSize[in] = the size of the cell
+ * \param cloud[in] = pointer to the list of the point clouds
+ * \return the averaged value of the points found in that cell
+ */
+float findElevation(float posX, float posY, float cellSize, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
+{
+    float xUppper= posX + cellSize/2;
+    float xLower= posX - cellSize/2;
+    float yUpper= posY + cellSize/2;
+    float yLower= posY - cellSize/2;
+    float zSum=0;
+    size_t numPoints=0;
+    ROS_INFO("looking at cell: %f,%f", posX, posY);
+    for(size_t i = 0; i <   cloud->points.size(); ++i){
+        if(cloud->points[i].x <= xUppper && cloud->points[i].x > xLower &&
+           cloud->points[i].y <= yUpper  && cloud->points[i].y > yLower)
+        {
+            zSum = zSum + cloud->points[i].z;
+            numPoints++;
+        }
+    }
+    return zSum/float(numPoints);
+}
+
+
+void pubMultiBeamLocalFrame(grid_map::Position multiBeamMapCenter, ros::NodeHandle nh)
+{    
+//    geometry_msgs::PoseStamped pose_msg;
+//    pose_msg.header.frame_id = "world_frame";
+//    pose_msg.pose.position.x = multiBeamMapCenter.x();
+//    pose_msg.pose.position.y = multiBeamMapCenter.y();
+////    pose_msg.pose.position.z = multiBeamMapCenter.z();
+
+    static tf2_ros::TransformBroadcaster br;
+    geometry_msgs::TransformStamped transformStamped;
+
+    transformStamped.header.stamp = ros::Time::now();
+    transformStamped.header.frame_id = "world_frame";
+    transformStamped.child_frame_id = "map";
+    transformStamped.transform.translation.x = multiBeamMapCenter.x();
+    transformStamped.transform.translation.y = multiBeamMapCenter.y();
+//    transformStamped.transform.translation.z = multiBeamMapCenter.z();
+    tf2::Quaternion q;
+    q.setRPY(0, 0, 0);
+    transformStamped.transform.rotation.x = q.x();
+    transformStamped.transform.rotation.y = q.y();
+    transformStamped.transform.rotation.z = q.z();
+    transformStamped.transform.rotation.w = q.w();
+
+    br.sendTransform(transformStamped);
+    //ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_map", 1, true);
+}
+
+
+//void timerCallback(const ros::TimerEvent&)
+//{
+//    pubMultiBeamLocalFrame();
+//    ROS_INFO("timer callback");
+//}
+
+
+int main(int argc, char** argv)
+{
+    // initialize node and publisher
+    float res = 10;// 10;
+    ros::init(argc, argv, "grid_map_test");
+    ros::NodeHandle nh;
+    ros::Publisher pub = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
+
+//    ros::Publisher sonarPub = nh.advertise<geometry_msgs::TransformStamped>("sonar_pose", 1, true);
+//    multiBeamTimer = nh.createTimer(ros::Duration(1), &GridMap::timerCallback, this);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+    loadFromFile("/home/emanuele/Desktop/AuAuChannel_5m.pcd",cloud);
+//    loadFromFile("/home/emanuele/Desktop/subsampled_test_cloud.pcd",cloud);
+
+    // create grid map
+    GridMap map({"elevation", "N", "SUM"});
+    map.setFrameId("map");
+
+    pcl::PointXYZ minPt, maxPt;
+    pcl::getMinMax3D (*cloud, minPt, maxPt);
+    Position mapCenter;
+    float lenX= (maxPt.x - minPt.x); //  float lenX= (maxPt.x - minPt.x)*2.2;
+    float lenY= (maxPt.y - minPt.y); //  float lenY= (maxPt.y - minPt.y)*2.2;
+
+    mapCenter.x()= lenX/2 + minPt.x;
+    mapCenter.y()= lenY/2 + minPt.y;
+
+    // passing the transformation from the world_frame to the map frame
+    // using the pubMultiBeamLocalFrame function
+
+    std::cout<<"AAAA"<<std::endl;
+    pubMultiBeamLocalFrame(mapCenter, nh);
+    std::cout << "B2 " << mapCenter.x() << " " << mapCenter.y() << " " << lenX  << " " << lenY << std::endl;
+
+    //map.setGeometry()
+    Position mapFrameOrigin;
+    mapFrameOrigin.x()= 0;
+    mapFrameOrigin.y()= 0;
+    map.setGeometry(Length(lenX, lenY), res, mapFrameOrigin);
+
+    std::cout << "C" << std::endl;
+    ROS_INFO("Created map with size %f x %f m (%i x %i cells).",
+             map.getLength().x(), map.getLength().y(),
+             map.getSize()(0), map.getSize()(1));
+
+
+    // iterate through the whole point cloud
+    ROS_INFO("adding points to grid");
+    for(size_t i = 0; i <   cloud->points.size(); ++i)
+    {
+//          std::cout<< " " << cloud->points[i].x
+//                   << " " << cloud->points[i].y
+//                   << " " << cloud->points[i].z << std::endl;
+
+          ROS_INFO_THROTTLE(1,"point %i of %i",i,cloud->points.size());
+          Position position;
+          //std::cout<<"BBB"<<std::endl;
+
+          position.x() = cloud->points[i].x-mapCenter.x(); // taken out the offset and added to the map
+          position.y() = cloud->points[i].y-mapCenter.y(); // taken out the offset and added to the map
+
+//          position.x() = cloud->points[i].x; // taken out the offset and added to the map
+//          position.y() = cloud->points[i].y; // taken out the offset and added to the map
+
+          //std::cout<<"position.x():  "<< position.x() << std::endl;
+
+          try{
+              if(isnan(map.atPosition("N", position))){
+                  map.atPosition("N", position)=0;
+              };
+              if(isnan(map.atPosition("SUM", position))){
+                  map.atPosition("SUM", position)=0;
+              };
+              if(isnan(map.atPosition("elevation", position))){
+                  map.atPosition("elevation", position)=0;
+              };
+
+              map.atPosition("N", position) = map.atPosition("N", position) +1;
+              map.atPosition("SUM", position) = map.atPosition("SUM", position) + cloud->points[i].z;
+              map.atPosition("elevation", position) = map.atPosition("SUM", position)/map.atPosition("N", position);
+          }catch(std::out_of_range){
+              ROS_INFO("point %i is outside the gridmap",i);
+          }
+          //std::cout<<map.atPosition("N", position)<<std::endl;
+    }
+    cloud.reset();
+
+//    for(GridMapIterator it(map); !it.isPastEnd(); ++it)
+//    {
+//        Position position;
+//        map.getPosition(*it, position);
+//        map.at("elevation", *it) = findElevation(position.x(), position.y(), map.getResolution(), cloud);
+//        std::cout << map.at("elevation", *it) << std::endl;
+//    }
+    // work with grid-map in a loop
+    ros::Rate rate(.1);
+    while (nh.ok()) {
+        // add data to grid-map and point cloud from file just read
+        pubMultiBeamLocalFrame(mapCenter, nh);
+        ros::Time time = ros::Time::now();
+        // publish a grid map
+        map.setTimestamp(time.toNSec());
+        grid_map_msgs::GridMap msg;
+        GridMapRosConverter::toMessage(map, msg);
+        pub.publish(msg);
+//        GridMapRosConverter::saveToBag(map, "/home/emanuele/Desktop/AuAugridmap_5m.bag","grid_map");
+        GridMapRosConverter::saveToBag(map, "/home/emanuele/Desktop/grid_map_50_auau_survey5ms.bag","grid_map");
+
+        ROS_INFO("Grid map (timestamp %f) published.", msg.info.header.stamp.toSec());
+        // wait for next cycle
+        rate.sleep();
+    }
+        return 0;
+}
+
+
+

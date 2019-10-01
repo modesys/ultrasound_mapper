@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>map_ros</name>
+  <version>1.6.1</version>
+  <description>examples to demonstrate the usage of grid map lib.</description>
+  <maintainer email="emanuele@todo.todo">emanuele</maintainer>
+
+  <license>BSD</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>roscpp</depend>
+  <depend>grid_map_core</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_cv</depend>
+  <depend>grid_map_filters</depend>
+  <depend>grid_map_loader</depend>
+  <depend>grid_map_msgs</depend>
+  <depend>grid_map_octomap</depend>
+  <depend>grid_map_rviz_plugin</depend>
+  <depend>grid_map_visualization</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>octomap_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>pcl_ros</depend>
+  <depend>pcl_conversions</depend>
+  <depend>message_generation</depend>
+  <depend>filters</depend>
+  <depend>image_transport</depend>
+
+
+</package>
